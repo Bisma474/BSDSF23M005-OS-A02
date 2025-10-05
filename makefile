@@ -1,21 +1,17 @@
-# Makefile for v1.0.0 - Basic directory listing
+# Makefile for ls-v1.0.0
+
 CC = gcc
-CFLAGS = -Wall -Wextra -std=gnu11
+CFLAGS = -Wall -g
+SRC = src/ls-v1.2.0.c
+OBJ = obj/ls-v1.2.0.o
+BIN = bin/ls
 
-SRC = src/ls-v1.0.0.c
-BIN_DIR = bin
-BIN = $(BIN_DIR)/ls-v1.0.0
+$(BIN): $(OBJ)
+	$(CC) $(CFLAGS) -o $(BIN) $(OBJ)
 
-all: $(BIN)
-
-# Rule to build binary inside bin/
-$(BIN): $(SRC) | $(BIN_DIR)
-	$(CC) $(CFLAGS) -o $(BIN) $(SRC)
-
-# Create bin directory if it doesn't exist
-$(BIN_DIR):
-	mkdir -p $(BIN_DIR)
+$(OBJ): $(SRC)
+	$(CC) $(CFLAGS) -c $(SRC) -o $(OBJ)
 
 clean:
-	rm -f $(BIN)
+	rm -f $(OBJ) $(BIN)
 
