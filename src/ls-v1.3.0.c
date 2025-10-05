@@ -1,4 +1,8 @@
-/* src/ls-v1.3.0.c — Feature-4 (column "across then down") */
+/*
+ * ls-v2.0.0 — Feature-4 (adds -x flag for horizontal display)
+ * - Default: column display (down then across)
+ * - With -x option: horizontal display (across then down)
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,64 +19,23 @@
 #include <limits.h>
 
 /* prototypes */
-void list_simple(const char *path);
+void list_simple(const char *path, int horizontal);
 void list_long(const char *path);
 void print_file_info(const char *name, const char *path);
 
 /* helpers */
-char **read_dir_all(const char *path, int *out_count, int *out_maxlen, int show_hidden);
-void free_names(char **names, int n);
-int get_term_width(void);
-void display_across_then_down(char **names, int n, int maxlen);
-
-/* ---- main ---- */
-
-int main(int argc, char *argv[]) {
-    int opt;
-    int long_listing = 0;
-    char *dir_path = ".";
-
-    while ((opt = getopt(argc, argv, "l")) != -1) {
-        switch (opt) {
-            case 'l': long_listing = 1; break;
-            default:
-                fprintf(stderr, "Usage: %s [-l] [directory]\n", argv[0]);
-                exit(EXIT_FAILURE);
-        }
-    }
-
-    if (optind < argc) dir_path = argv[optind];
-
-    if (long_listing)
-        list_long(dir_path);
-    else
-        list_simple(dir_path);
-
-    return 0;
-}
-
-/* ---- list_simple uses horizontal display ---- */
-void list_simple(const char *path) {
-    int n = 0, maxlen = 0;
-    char **names = read_dir_all(path, &n, &maxlen, 0);
-    if (!names) return;
-    display_across_then_down(names, n, maxlen);
-    free_names(names, n);
-}
-
-/* ---- directory reading helper ---- */
 char **read_dir_all(const char *path, int *out_count, int *out_maxlen, int show_hidden) {
     DIR *dir = opendir(path);
     if (!dir) { perror("opendir"); *out_count = 0; *out_maxlen = 0; return NULL; }
 
     int cap = 64;
     char **names = malloc(cap * sizeof(char *));
-    if (!names) { closedir(dir); perror("malloc"); *out_count = 0; *out_maxlen = 0; return NULL; }
+    if (!names) { closedir(dir); perror("malloc"); return NULL; }
+
     int n = 0, maxlen = 0;
     struct dirent *entry;
-
     while ((entry = readdir(dir)) != NULL) {
-        if (!show_hidden && entry->d_name[0] == '.') continue;
+        if (entry->d_name[0] == '.') continue; /* skip hidden */
         if (n >= cap) {
             cap *= 2;
             char **tmp = realloc(names, cap * sizeof(char *));
@@ -97,27 +60,26 @@ void free_names(char **names, int n) {
     free(names);
 }
 
-/* ---- terminal width ---- */
 int get_term_width(void) {
     struct winsize w;
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0 && w.ws_col > 0) return w.ws_col;
     return 80;
 }
 
-/* ---- NEW: across then down ---- */
-void display_across_then_down(char **names, int n, int maxlen) {
-    if (n <= 0) { printf("\n"); return; }
+/* ----- Display modes ----- */
 
+/* Down-then-across (Feature-3) */
+void display_down_across(char **names, int n, int maxlen) {
+    if (n <= 0) { printf("\n"); return; }
     int term_w = get_term_width();
     int col_w = maxlen + 2;
-    if (col_w <= 0) col_w = 1;
     int cols = term_w / col_w;
     if (cols < 1) cols = 1;
     int rows = (n + cols - 1) / cols;
 
     for (int r = 0; r < rows; ++r) {
         for (int c = 0; c < cols; ++c) {
-            int idx = r * cols + c;
+            int idx = c * rows + r;
             if (idx < n)
                 printf("%-*s", col_w, names[idx]);
         }
@@ -125,11 +87,69 @@ void display_across_then_down(char **names, int n, int maxlen) {
     }
 }
 
-/* ---- long listing preserved ---- */
+/* Across-then-down (Feature-4) */
+void display_across_then_down(char **names, int n, int maxlen) {
+    if (n <= 0) { printf("\n"); return; }
+    int term_w = get_term_width();
+    int col_w = maxlen + 2;
+    int cols = term_w / col_w;
+    if (cols < 1) cols = 1;
+
+    for (int i = 0; i < n; i++) {
+        printf("%-*s", col_w, names[i]);
+        if ((i + 1) % cols == 0)
+            printf("\n");
+    }
+    if (n % cols != 0)
+        printf("\n");
+}
+
+/* --------------------------- */
+
+int main(int argc, char *argv[]) {
+    int opt;
+    int long_listing = 0;
+    int horizontal = 0;
+    char *dir_path = ".";
+
+    while ((opt = getopt(argc, argv, "lx")) != -1) {
+        switch (opt) {
+            case 'l': long_listing = 1; break;
+            case 'x': horizontal = 1; break;
+            default:
+                fprintf(stderr, "Usage: %s [-l] [-x] [directory]\n", argv[0]);
+                exit(EXIT_FAILURE);
+        }
+    }
+
+    if (optind < argc)
+        dir_path = argv[optind];
+
+    if (long_listing)
+        list_long(dir_path);
+    else
+        list_simple(dir_path, horizontal);
+
+    return 0;
+}
+
+void list_simple(const char *path, int horizontal) {
+    int n = 0, maxlen = 0;
+    char **names = read_dir_all(path, &n, &maxlen, 0);
+    if (!names) return;
+
+    if (horizontal)
+        display_across_then_down(names, n, maxlen);
+    else
+        display_down_across(names, n, maxlen);
+
+    free_names(names, n);
+}
+
+/* long listing unchanged */
 void list_long(const char *path) {
     DIR *dir = opendir(path);
     if (!dir) { perror("opendir"); return; }
-
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL) {
         if (entry->d_name[0] == '.') continue;
@@ -141,6 +161,7 @@ void list_long(const char *path) {
 void print_file_info(const char *name, const char *path) {
     char fullpath[PATH_MAX];
     snprintf(fullpath, sizeof(fullpath), "%s/%s", path, name);
+
     struct stat st;
     if (lstat(fullpath, &st) == -1) { perror("lstat"); return; }
 
@@ -165,13 +186,17 @@ void print_file_info(const char *name, const char *path) {
 
     struct passwd *pw = getpwuid(st.st_uid);
     struct group *gr = getgrgid(st.st_gid);
-    char *owner = pw ? pw->pw_name : "?";
-    char *group = gr ? gr->gr_name : "?";
+
     char timebuf[64];
     strncpy(timebuf, ctime(&st.st_mtime), sizeof(timebuf));
     timebuf[strlen(timebuf) - 1] = '\0';
 
     printf("%s %3ld %s %s %8ld %s %s\n",
-           perms, (long)st.st_nlink, owner, group,
-           (long)st.st_size, timebuf, name);
+           perms,
+           (long)st.st_nlink,
+           pw ? pw->pw_name : "?",
+           gr ? gr->gr_name : "?",
+           (long)st.st_size,
+           timebuf,
+           name);
 }
