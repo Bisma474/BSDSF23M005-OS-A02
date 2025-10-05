@@ -1,4 +1,4 @@
-# Makefile for ls-v2.0.0 — Feature-3 (column "down then across")
+# Makefile for ls-v1.3.0 — Feature-4 (horizontal "across then down")
 
 CC = gcc
 CFLAGS = -Wall -g
@@ -7,8 +7,8 @@ SRC_DIR = src
 OBJ_DIR = obj
 BIN_DIR = bin
 
-SRC = $(SRC_DIR)/ls-v1.2.0.c
-OBJ = $(OBJ_DIR)/ls-v1.2.0.o
+SRC = $(SRC_DIR)/ls-v1.3.0.c
+OBJ = $(OBJ_DIR)/ls-v1.3.0.o
 BIN = $(BIN_DIR)/ls
 
 # Default target
@@ -29,6 +29,6 @@ $(BIN_DIR):
 $(OBJ_DIR):
 	mkdir -p $(OBJ_DIR)
 
-# Clean up
+# Clean up build files
 clean:
 	rm -f $(OBJ) $(BIN)
