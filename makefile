@@ -1,21 +1,34 @@
-# Makefile for v1.0.0 - Basic directory listing
+# Makefile for v2.0.0 - Long listing version
+
 CC = gcc
 CFLAGS = -Wall -Wextra -std=gnu11
 
-SRC = src/ls-v1.0.0.c
+SRC_DIR = src
+OBJ_DIR = obj
 BIN_DIR = bin
-BIN = $(BIN_DIR)/ls-v1.0.0
 
+SRC = $(SRC_DIR)/ls.c
+OBJ = $(OBJ_DIR)/ls.o
+BIN = $(BIN_DIR)/ls
+
+# Default target
 all: $(BIN)
 
-# Rule to build binary inside bin/
-$(BIN): $(SRC) | $(BIN_DIR)
-	$(CC) $(CFLAGS) -o $(BIN) $(SRC)
+# Rule to link object file into binary
+$(BIN): $(OBJ) | $(BIN_DIR)
+	$(CC) $(CFLAGS) -o $(BIN) $(OBJ)
 
-# Create bin directory if it doesn't exist
+# Rule to compile .c into .o (object)
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Create directories if not exist
 $(BIN_DIR):
 	mkdir -p $(BIN_DIR)
 
-clean:
-	rm -f $(BIN)
+$(OBJ_DIR):
+	mkdir -p $(OBJ_DIR)
 
+# Clean up
+clean:
+	rm -f $(OBJ) $(BIN)
