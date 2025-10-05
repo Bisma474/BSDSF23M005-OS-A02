@@ -1,14 +1,14 @@
-# Makefile for v2.0.0 - Long listing version
+# Makefile for ls-v2.0.0 — Feature-3 (column "down then across")
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=gnu11
+CFLAGS = -Wall -g
 
 SRC_DIR = src
 OBJ_DIR = obj
 BIN_DIR = bin
 
-SRC = $(SRC_DIR)/ls.c
-OBJ = $(OBJ_DIR)/ls.o
+SRC = $(SRC_DIR)/ls-v1.2.0.c
+OBJ = $(OBJ_DIR)/ls-v1.2.0.o
 BIN = $(BIN_DIR)/ls
 
 # Default target
