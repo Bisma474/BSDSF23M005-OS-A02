@@ -7,8 +7,8 @@ SRC_DIR = src
 OBJ_DIR = obj
 BIN_DIR = bin
 
-SRC = $(SRC_DIR)/ls-v1.4.0.c
-OBJ = $(OBJ_DIR)/ls-v1.4.0.o
+SRC = $(SRC_DIR)/ls-v1.5.0.c
+OBJ = $(OBJ_DIR)/ls-v1.5.0.o
 BIN = $(BIN_DIR)/ls
 
 # Default target
