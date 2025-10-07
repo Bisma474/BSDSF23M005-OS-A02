@@ -1,18 +1,18 @@
 /*
- * src/ls-v1.5.0.c — Feature 6: Colorized Output
- * -----------------------------------------------
+ * ls-v1.5.0.c — Feature 6: Colorized Output (Assignment Version)
+ * --------------------------------------------------------------
  * Features:
  *  - Alphabetical sorting (locale-aware)
  *  - Column display (down-then-across) by default
  *  - `-x` for horizontal display
  *  - `-l` for long listing
- *  - Colorized output:
- *      Blue   -> Directories
- *      Green  -> Executable files
- *      Cyan   -> Symbolic links
- *      Yellow -> Named pipes (FIFOs)
- *      Magenta-> Sockets
- *      Default-> Regular files
+ *  - Colorized output based on file type:
+ *      Blue    -> Directories
+ *      Green   -> Executables
+ *      Red     -> Tarballs / Archives (.tar, .gz, .zip)
+ *      Pink    -> Symbolic Links
+ *      Reverse -> Special Files (devices, sockets, etc.)
+ *      Default -> Regular Files
  */
 
 #include <stdio.h>
@@ -30,214 +30,148 @@
 #include <limits.h>
 #include <locale.h>
 
-/* ---------- Color codes (ANSI Escape Sequences) ---------- */
+/* ---------- ANSI Color Codes ---------- */
 #define COLOR_RESET   "\033[0m"
-#define COLOR_DIR     "\033[1;34m"  /* Blue */
-#define COLOR_EXEC    "\033[1;32m"  /* Green */
-#define COLOR_LINK    "\033[1;36m"  /* Cyan */
-#define COLOR_FIFO    "\033[0;33m"  /* Yellow */
-#define COLOR_SOCKET  "\033[0;35m"  /* Magenta */
+#define COLOR_BLUE    "\033[1;34m"
+#define COLOR_GREEN   "\033[1;32m"
+#define COLOR_RED     "\033[1;31m"
+#define COLOR_PINK    "\033[1;35m"
+#define COLOR_REVERSE "\033[7m"
 
-/* Function prototypes */
+/* ---------- Function Prototypes ---------- */
 void list_simple(const char *path, int horizontal);
 void list_long(const char *path);
 void print_file_info(const char *name, const char *path);
 void print_colored_name(const char *name, const char *path);
 
-/* Helper functions */
 char **read_dir_all(const char *path, int *out_count, int *out_maxlen, int show_hidden);
 void free_names(char **names, int n);
 int get_term_width(void);
 void display_down_across(char **names, int n, int maxlen, const char *path);
 void display_horizontal(char **names, int n, int maxlen, const char *path);
 
-/* Comparator for sorting (locale-aware) */
-int cmp_strptr(const void *a, const void *b)
-{
+/* ---------- Locale-Aware Comparator ---------- */
+int cmp_strptr(const void *a, const void *b) {
     const char * const *pa = a;
     const char * const *pb = b;
     return strcoll(*pa, *pb);
 }
 
-/* Read all non-hidden directory entries */
-char **read_dir_all(const char *path, int *out_count, int *out_maxlen, int show_hidden)
-{
+/* ---------- Read Directory Entries ---------- */
+char **read_dir_all(const char *path, int *out_count, int *out_maxlen, int show_hidden) {
     DIR *dir = opendir(path);
-    if (!dir)
-    {
+    if (!dir) {
         perror("opendir");
-        *out_count = 0;
-        *out_maxlen = 0;
+        *out_count = 0; *out_maxlen = 0;
         return NULL;
     }
 
-    int cap = 64;
+    int cap = 64, n = 0, maxlen = 0;
     char **names = malloc(cap * sizeof(char *));
-    if (!names)
-    {
-        closedir(dir);
-        perror("malloc");
-        *out_count = 0;
-        *out_maxlen = 0;
-        return NULL;
-    }
+    if (!names) { closedir(dir); perror("malloc"); return NULL; }
 
-    int n = 0;
-    int maxlen = 0;
     struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL)
-    {
-        if (!show_hidden && entry->d_name[0] == '.')
-            continue;
-
-        if (n >= cap)
-        {
+    while ((entry = readdir(dir)) != NULL) {
+        if (!show_hidden && entry->d_name[0] == '.') continue;
+        if (n >= cap) {
             cap *= 2;
             char **tmp = realloc(names, cap * sizeof(char *));
-            if (!tmp)
-            {
-                perror("realloc");
-                break;
-            }
+            if (!tmp) { perror("realloc"); break; }
             names = tmp;
         }
-
         names[n] = strdup(entry->d_name);
-        if (!names[n])
-        {
-            perror("strdup");
-            break;
-        }
-
-        int L = (int)strlen(entry->d_name);
-        if (L > maxlen)
-            maxlen = L;
-
+        if (!names[n]) { perror("strdup"); break; }
+        int L = strlen(entry->d_name);
+        if (L > maxlen) maxlen = L;
         n++;
     }
     closedir(dir);
-
-    /* Sort entries alphabetically */
     qsort(names, n, sizeof(char *), cmp_strptr);
-
-    *out_count = n;
-    *out_maxlen = maxlen;
+    *out_count = n; *out_maxlen = maxlen;
     return names;
 }
 
-/* Free list of names */
-void free_names(char **names, int n)
-{
-    if (!names)
-        return;
-    for (int i = 0; i < n; ++i)
-        free(names[i]);
+/* ---------- Free Allocated Memory ---------- */
+void free_names(char **names, int n) {
+    for (int i = 0; i < n; i++) free(names[i]);
     free(names);
 }
 
-/* Get terminal width for column layout */
-int get_term_width(void)
-{
+/* ---------- Terminal Width ---------- */
+int get_term_width(void) {
     struct winsize w;
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0 && w.ws_col > 0)
         return w.ws_col;
     return 80;
 }
 
-/* Determine and print colored name */
-void print_colored_name(const char *name, const char *path)
-{
+/* ---------- Colorized Name Printing ---------- */
+void print_colored_name(const char *name, const char *path) {
     char fullpath[PATH_MAX];
     snprintf(fullpath, sizeof(fullpath), "%s/%s", path, name);
 
     struct stat st;
-    if (lstat(fullpath, &st) == -1)
-    {
-        printf("%s ", name);
-        return;
-    }
+    if (lstat(fullpath, &st) == -1) { printf("%s ", name); return; }
 
     const char *color = COLOR_RESET;
 
-    if (S_ISDIR(st.st_mode))
-        color = COLOR_DIR;
-    else if (S_ISLNK(st.st_mode))
-        color = COLOR_LINK;
-    else if (S_ISFIFO(st.st_mode))
-        color = COLOR_FIFO;
-    else if (S_ISSOCK(st.st_mode))
-        color = COLOR_SOCKET;
+    /* --- Determine file type and color --- */
+    if (S_ISDIR(st.st_mode)) color = COLOR_BLUE;
+    else if (S_ISLNK(st.st_mode)) color = COLOR_PINK;
+    else if (S_ISCHR(st.st_mode) || S_ISBLK(st.st_mode) || S_ISSOCK(st.st_mode))
+        color = COLOR_REVERSE;
+    else if (strstr(name, ".tar") || strstr(name, ".gz") || strstr(name, ".zip"))
+        color = COLOR_RED;
     else if (st.st_mode & S_IXUSR)
-        color = COLOR_EXEC;
+        color = COLOR_GREEN;
 
     printf("%s%s%s", color, name, COLOR_RESET);
 }
 
-/* Display in down-then-across columns */
-void display_down_across(char **names, int n, int maxlen, const char *path)
-{
-    if (n <= 0)
-    {
-        printf("\n");
-        return;
-    }
+/* ---------- Down-then-Across Display ---------- */
+void display_down_across(char **names, int n, int maxlen, const char *path) {
+    if (n <= 0) { printf("\n"); return; }
 
     int term_w = get_term_width();
     int col_w = maxlen + 2;
-    int cols = term_w / col_w;
-    if (cols < 1)
-        cols = 1;
+    int cols = term_w / col_w; if (cols < 1) cols = 1;
     int rows = (n + cols - 1) / cols;
 
-    for (int r = 0; r < rows; ++r)
-    {
-        for (int c = 0; c < cols; ++c)
-        {
+    for (int r = 0; r < rows; ++r) {
+        for (int c = 0; c < cols; ++c) {
             int idx = c * rows + r;
-            if (idx < n)
-            {
+            if (idx < n) {
                 print_colored_name(names[idx], path);
                 int pad = col_w - (int)strlen(names[idx]);
-                for (int i = 0; i < pad; ++i) putchar(' ');
+                for (int i = 0; i < pad; i++) putchar(' ');
             }
         }
         printf("\n");
     }
 }
 
-/* Display in horizontal order (left to right across columns) */
-void display_horizontal(char **names, int n, int maxlen, const char *path)
-{
-    if (n <= 0)
-    {
-        printf("\n");
-        return;
-    }
+/* ---------- Horizontal Display ---------- */
+void display_horizontal(char **names, int n, int maxlen, const char *path) {
+    if (n <= 0) { printf("\n"); return; }
 
     int term_w = get_term_width();
     int col_w = maxlen + 2;
-    int cols = term_w / col_w;
-    if (cols < 1)
-        cols = 1;
+    int cols = term_w / col_w; if (cols < 1) cols = 1;
 
-    for (int i = 0; i < n; i++)
-    {
+    for (int i = 0; i < n; i++) {
         print_colored_name(names[i], path);
         int pad = col_w - (int)strlen(names[i]);
-        for (int j = 0; j < pad; ++j) putchar(' ');
-        if ((i + 1) % cols == 0)
-            printf("\n");
+        for (int j = 0; j < pad; j++) putchar(' ');
+        if ((i + 1) % cols == 0) printf("\n");
     }
     printf("\n");
 }
 
-/* Simple (non -l) listing */
-void list_simple(const char *path, int horizontal)
-{
+/* ---------- Simple List ---------- */
+void list_simple(const char *path, int horizontal) {
     int n = 0, maxlen = 0;
     char **names = read_dir_all(path, &n, &maxlen, 0);
-    if (!names)
-        return;
+    if (!names) return;
 
     if (horizontal)
         display_horizontal(names, n, maxlen, path);
@@ -247,39 +181,26 @@ void list_simple(const char *path, int horizontal)
     free_names(names, n);
 }
 
-/* Long listing */
-void list_long(const char *path)
-{
+/* ---------- Long List (-l) ---------- */
+void list_long(const char *path) {
     DIR *dir = opendir(path);
-    if (!dir)
-    {
-        perror("opendir");
-        return;
-    }
+    if (!dir) { perror("opendir"); return; }
 
     struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL)
-    {
-        if (entry->d_name[0] == '.')
-            continue;
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_name[0] == '.') continue;
         print_file_info(entry->d_name, path);
     }
-
     closedir(dir);
 }
 
-/* Print detailed file info (-l) */
-void print_file_info(const char *name, const char *path)
-{
+/* ---------- File Info Printing ---------- */
+void print_file_info(const char *name, const char *path) {
     char fullpath[PATH_MAX];
     snprintf(fullpath, sizeof(fullpath), "%s/%s", path, name);
 
     struct stat st;
-    if (lstat(fullpath, &st) == -1)
-    {
-        perror("lstat");
-        return;
-    }
+    if (lstat(fullpath, &st) == -1) { perror("lstat"); return; }
 
     char perms[11];
     perms[0] = S_ISDIR(st.st_mode) ? 'd' :
@@ -288,7 +209,6 @@ void print_file_info(const char *name, const char *path)
                S_ISBLK(st.st_mode) ? 'b' :
                S_ISFIFO(st.st_mode) ? 'p' :
                S_ISSOCK(st.st_mode) ? 's' : '-';
-
     perms[1] = (st.st_mode & S_IRUSR) ? 'r' : '-';
     perms[2] = (st.st_mode & S_IWUSR) ? 'w' : '-';
     perms[3] = (st.st_mode & S_IXUSR) ? 'x' : '-';
@@ -302,8 +222,6 @@ void print_file_info(const char *name, const char *path)
 
     struct passwd *pw = getpwuid(st.st_uid);
     struct group *gr = getgrgid(st.st_gid);
-    char *owner = pw ? pw->pw_name : "?";
-    char *group = gr ? gr->gr_name : "?";
 
     char timebuf[64];
     strncpy(timebuf, ctime(&st.st_mtime), sizeof(timebuf));
@@ -312,8 +230,8 @@ void print_file_info(const char *name, const char *path)
     printf("%s %3ld %s %s %8ld %s ",
            perms,
            (long)st.st_nlink,
-           owner,
-           group,
+           pw ? pw->pw_name : "?",
+           gr ? gr->gr_name : "?",
            (long)st.st_size,
            timebuf);
 
@@ -321,39 +239,25 @@ void print_file_info(const char *name, const char *path)
     printf("\n");
 }
 
-/* Main function */
-int main(int argc, char *argv[])
-{
-    setlocale(LC_COLLATE, ""); /* enable locale-aware sorting */
+/* ---------- Main Function ---------- */
+int main(int argc, char *argv[]) {
+    setlocale(LC_COLLATE, "");
+    int opt, long_listing = 0, horizontal = 0;
+    const char *dir_path = ".";
 
-    int opt;
-    int long_listing = 0;
-    int horizontal = 0;
-    char *dir_path = ".";
-
-    while ((opt = getopt(argc, argv, "lx")) != -1)
-    {
-        switch (opt)
-        {
-        case 'l':
-            long_listing = 1;
-            break;
-        case 'x':
-            horizontal = 1;
-            break;
-        default:
+    while ((opt = getopt(argc, argv, "lx")) != -1) {
+        if (opt == 'l') long_listing = 1;
+        else if (opt == 'x') horizontal = 1;
+        else {
             fprintf(stderr, "Usage: %s [-l] [-x] [directory]\n", argv[0]);
             exit(EXIT_FAILURE);
         }
     }
 
-    if (optind < argc)
-        dir_path = argv[optind];
+    if (optind < argc) dir_path = argv[optind];
 
-    if (long_listing)
-        list_long(dir_path);
-    else
-        list_simple(dir_path, horizontal);
+    if (long_listing) list_long(dir_path);
+    else list_simple(dir_path, horizontal);
 
     return 0;
 }
