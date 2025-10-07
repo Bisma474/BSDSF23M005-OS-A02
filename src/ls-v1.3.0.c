@@ -1,7 +1,11 @@
 /*
- * ls-v2.0.0 — Feature-4 (adds -x flag for horizontal display)
- * - Default: column display (down then across)
- * - With -x option: horizontal display (across then down)
+ * Programming Assignment 02: lsv1.3.0
+ * Feature-4: Column "across then down" (-x)
+ * 
+ * Usage:
+ *   $ ./ls-v1.3.0              -> down then across
+ *   $ ./ls-v1.3.0 -l           -> long listing
+ *   $ ./ls-v1.3.0 -x           -> across then down
  */
 
 #include <stdio.h>
@@ -19,60 +23,141 @@
 #include <limits.h>
 
 /* prototypes */
-void list_simple(const char *path, int horizontal);
+void list_simple(const char *path, int mode);
 void list_long(const char *path);
 void print_file_info(const char *name, const char *path);
 
 /* helpers */
+char **read_dir_all(const char *path, int *out_count, int *out_maxlen, int show_hidden);
+void free_names(char **names, int n);
+int get_term_width(void);
+void display_across_then_down(char **names, int n, int maxlen);
+void display_down_then_across(char **names, int n, int maxlen);
+
+/* ---- main ---- */
+int main(int argc, char *argv[]) {
+    int opt;
+    int long_listing = 0, across_mode = 0;
+    char *dir_path = ".";
+
+    while ((opt = getopt(argc, argv, "lx")) != -1) {
+        switch (opt) {
+            case 'l': long_listing = 1; break;
+            case 'x': across_mode = 1; break;
+            default:
+                fprintf(stderr, "Usage: %s [-l|-x] [directory]\n", argv[0]);
+                exit(EXIT_FAILURE);
+        }
+    }
+
+    if (optind < argc)
+        dir_path = argv[optind];
+
+    if (long_listing)
+        list_long(dir_path);
+    else
+        list_simple(dir_path, across_mode);
+
+    return 0;
+}
+
+/* ---- list_simple ---- */
+void list_simple(const char *path, int mode) {
+    int n = 0, maxlen = 0;
+    char **names = read_dir_all(path, &n, &maxlen, 0);
+    if (!names) return;
+
+    if (mode)
+        display_across_then_down(names, n, maxlen);  // -x mode
+    else
+        display_down_then_across(names, n, maxlen);  // default
+
+    free_names(names, n);
+}
+
+/* ---- read all directory entries ---- */
 char **read_dir_all(const char *path, int *out_count, int *out_maxlen, int show_hidden) {
     DIR *dir = opendir(path);
     if (!dir) { perror("opendir"); *out_count = 0; *out_maxlen = 0; return NULL; }
 
     int cap = 64;
     char **names = malloc(cap * sizeof(char *));
-    if (!names) { closedir(dir); perror("malloc"); return NULL; }
+    if (!names) { closedir(dir); perror("malloc"); *out_count = 0; *out_maxlen = 0; return NULL; }
 
     int n = 0, maxlen = 0;
     struct dirent *entry;
+
     while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_name[0] == '.') continue; /* skip hidden */
+        if (!show_hidden && entry->d_name[0] == '.') continue;
+
         if (n >= cap) {
             cap *= 2;
             char **tmp = realloc(names, cap * sizeof(char *));
             if (!tmp) { perror("realloc"); break; }
             names = tmp;
         }
+
         names[n] = strdup(entry->d_name);
         if (!names[n]) { perror("strdup"); break; }
+
         int L = (int)strlen(entry->d_name);
         if (L > maxlen) maxlen = L;
         n++;
     }
     closedir(dir);
+
     *out_count = n;
     *out_maxlen = maxlen;
     return names;
 }
 
+/* ---- free allocated memory ---- */
 void free_names(char **names, int n) {
     if (!names) return;
-    for (int i = 0; i < n; ++i) free(names[i]);
+    for (int i = 0; i < n; ++i)
+        free(names[i]);
     free(names);
 }
 
+/* ---- get terminal width ---- */
 int get_term_width(void) {
     struct winsize w;
-    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0 && w.ws_col > 0) return w.ws_col;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0 && w.ws_col > 0)
+        return w.ws_col;
     return 80;
 }
 
-/* ----- Display modes ----- */
-
-/* Down-then-across (Feature-3) */
-void display_down_across(char **names, int n, int maxlen) {
+/* ---- across then down (horizontal mode, -x) ---- */
+void display_across_then_down(char **names, int n, int maxlen) {
     if (n <= 0) { printf("\n"); return; }
+
     int term_w = get_term_width();
     int col_w = maxlen + 2;
+    if (col_w <= 0) col_w = 1;
+
+    int pos = 0; // track horizontal position
+    for (int i = 0; i < n; i++) {
+        int len = strlen(names[i]) + 2;
+
+        // If next file exceeds screen width, move to next line
+        if (pos + len > term_w) {
+            printf("\n");
+            pos = 0;
+        }
+
+        printf("%-*s", col_w, names[i]);
+        pos += col_w;
+    }
+    printf("\n");
+}
+
+/* ---- down then across (default mode) ---- */
+void display_down_then_across(char **names, int n, int maxlen) {
+    if (n <= 0) { printf("\n"); return; }
+
+    int term_w = get_term_width();
+    int col_w = maxlen + 2;
+    if (col_w <= 0) col_w = 1;
     int cols = term_w / col_w;
     if (cols < 1) cols = 1;
     int rows = (n + cols - 1) / cols;
@@ -87,69 +172,11 @@ void display_down_across(char **names, int n, int maxlen) {
     }
 }
 
-/* Across-then-down (Feature-4) */
-void display_across_then_down(char **names, int n, int maxlen) {
-    if (n <= 0) { printf("\n"); return; }
-    int term_w = get_term_width();
-    int col_w = maxlen + 2;
-    int cols = term_w / col_w;
-    if (cols < 1) cols = 1;
-
-    for (int i = 0; i < n; i++) {
-        printf("%-*s", col_w, names[i]);
-        if ((i + 1) % cols == 0)
-            printf("\n");
-    }
-    if (n % cols != 0)
-        printf("\n");
-}
-
-/* --------------------------- */
-
-int main(int argc, char *argv[]) {
-    int opt;
-    int long_listing = 0;
-    int horizontal = 0;
-    char *dir_path = ".";
-
-    while ((opt = getopt(argc, argv, "lx")) != -1) {
-        switch (opt) {
-            case 'l': long_listing = 1; break;
-            case 'x': horizontal = 1; break;
-            default:
-                fprintf(stderr, "Usage: %s [-l] [-x] [directory]\n", argv[0]);
-                exit(EXIT_FAILURE);
-        }
-    }
-
-    if (optind < argc)
-        dir_path = argv[optind];
-
-    if (long_listing)
-        list_long(dir_path);
-    else
-        list_simple(dir_path, horizontal);
-
-    return 0;
-}
-
-void list_simple(const char *path, int horizontal) {
-    int n = 0, maxlen = 0;
-    char **names = read_dir_all(path, &n, &maxlen, 0);
-    if (!names) return;
-
-    if (horizontal)
-        display_across_then_down(names, n, maxlen);
-    else
-        display_down_across(names, n, maxlen);
-
-    free_names(names, n);
-}
-
-/* long listing unchanged */
+/* ---- long listing ---- */
 void list_long(const char *path) {
     DIR *dir = opendir(path);
     if (!dir) { perror("opendir"); return; }
+
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL) {
         if (entry->d_name[0] == '.') continue;
@@ -158,10 +185,10 @@ void list_long(const char *path) {
     closedir(dir);
 }
 
+/* ---- file info for -l ---- */
 void print_file_info(const char *name, const char *path) {
     char fullpath[PATH_MAX];
     snprintf(fullpath, sizeof(fullpath), "%s/%s", path, name);
-
     struct stat st;
     if (lstat(fullpath, &st) == -1) { perror("lstat"); return; }
 
@@ -186,17 +213,13 @@ void print_file_info(const char *name, const char *path) {
 
     struct passwd *pw = getpwuid(st.st_uid);
     struct group *gr = getgrgid(st.st_gid);
-
+    char *owner = pw ? pw->pw_name : "?";
+    char *group = gr ? gr->gr_name : "?";
     char timebuf[64];
     strncpy(timebuf, ctime(&st.st_mtime), sizeof(timebuf));
     timebuf[strlen(timebuf) - 1] = '\0';
 
     printf("%s %3ld %s %s %8ld %s %s\n",
-           perms,
-           (long)st.st_nlink,
-           pw ? pw->pw_name : "?",
-           gr ? gr->gr_name : "?",
-           (long)st.st_size,
-           timebuf,
-           name);
+           perms, (long)st.st_nlink, owner, group,
+           (long)st.st_size, timebuf, name);
 }
